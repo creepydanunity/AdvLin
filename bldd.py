@@ -7,7 +7,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
-
 def is_executable(file_path):
     try:
         output = subprocess.check_output(['file', file_path], text=True)
@@ -31,14 +30,16 @@ def get_architecture(file_path):
     except subprocess.CalledProcessError:
         return 'unknown'
 
-def get_libraries(file_path):
+def get_libraries_readelf(file_path):
     try:
-        output = subprocess.check_output(['ldd', file_path], text=True)
+        output = subprocess.check_output(['readelf', '-d', file_path], text=True)
         libs = []
         for line in output.splitlines():
-            parts = line.strip().split()
-            if '=>' in parts:
-                libs.append(parts[0])
+            if '(NEEDED)' in line:
+                parts = line.split('[', 1)
+                if len(parts) > 1:
+                    lib = parts[1].rstrip(']')
+                    libs.append(lib)
         return libs
     except subprocess.CalledProcessError:
         return []
@@ -46,27 +47,12 @@ def get_libraries(file_path):
 def process_executable(path):
     if is_executable(path):
         arch = get_architecture(path)
-        libs = get_libraries(path)
+        libs = get_libraries_readelf(path)
         return path, arch, libs
     return None
 
-def scan_directory(directory):
-    results = defaultdict(lambda: defaultdict(list))
-
-    for root, _, files in os.walk(directory):
-        for name in files:
-            path = os.path.join(root, name)
-            if is_executable(path):
-                arch = get_architecture(path)
-                libs = get_libraries(path)
-                for lib in libs:
-                    results[arch][lib].append(path)
-
-    return results
-
 def scan_directory_parallel(directory):
-    """Scan directory for executables and collect libraries, using parallelism."""
-    results = defaultdict(lambda: defaultdict(list))  # arch -> lib -> list of execs
+    results = defaultdict(lambda: defaultdict(list))
     files_to_process = []
 
     for root, _, files in os.walk(directory):
@@ -85,18 +71,6 @@ def scan_directory_parallel(directory):
                     results[arch][lib].append(path)
 
     return results
-
-def generate_report(results, output_file):
-    with open(output_file, 'w') as f:
-        f.write("Report on dynamic used libraries by ELF executables\n\n")
-        for arch in results:
-            f.write(f"--------- {arch} ---------\n\n")
-            sorted_libs = sorted(results[arch].items(), key=lambda item: len(item[1]), reverse=True)
-            for lib, execs in sorted_libs:
-                f.write(f"{lib} ({len(execs)} execs)\n")
-                for exe in execs:
-                    f.write(f"  -> {exe}\n")
-                f.write("\n")
 
 def generate_text_report(results, output_file):
     with open(output_file, 'w') as f:
@@ -147,7 +121,7 @@ def generate_pdf_report(results, output_file):
     c.save()
 
 def main():
-    parser = argparse.ArgumentParser(description='bldd - backward ldd tool')
+    parser = argparse.ArgumentParser(description='bldd - backward ldd tool (readelf-based)')
     parser.add_argument('directory', help='Directory to scan')
     parser.add_argument('-o', '--output', default='report.txt', help='Output file (default: report.txt)')
     parser.add_argument('--pdf', action='store_true', help='Generate PDF report instead of text')
