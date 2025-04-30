@@ -138,32 +138,39 @@ static long stack_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
     int *new_stack;
 
     switch (cmd) {
-        case IOCTL_SET_STACK_SIZE:
-            if (copy_from_user(&new_size, (int __user *)arg, sizeof(int))) {
-                return -EFAULT;
-            }
-            if (new_size <= 0) {
-                printk(KERN_WARNING "int_stack: Invalid stack size.\n");
-                return -EINVAL;
-            }
-
-            mutex_lock(&stack_mutex);
-            new_stack = kmalloc(sizeof(int) * new_size, GFP_KERNEL);
-            if (!new_stack) {
-                mutex_unlock(&stack_mutex);
-                return -ENOMEM;
-            }
-
-            kfree(stack);
-            stack = new_stack;
-            max_size = new_size;
-            top = -1;
-            mutex_unlock(&stack_mutex);
-            printk(KERN_INFO "int_stack: Resized stack to %d.\n", new_size);
-            break;
-
-        default:
+    case IOCTL_SET_STACK_SIZE:
+        if (copy_from_user(&new_size, (int __user *)arg, sizeof(int))) {
+            return -EFAULT;
+        }
+        if (new_size <= 0) {
+            printk(KERN_WARNING "int_stack: Invalid stack size.\n");
             return -EINVAL;
+        }
+
+        mutex_lock(&stack_mutex);
+        new_stack = kmalloc(sizeof(int) * new_size, GFP_KERNEL);
+        if (!new_stack) {
+            mutex_unlock(&stack_mutex);
+            return -ENOMEM;
+        }
+
+        int copy_count = (top + 1 < new_size) ? (top + 1) : new_size;
+        for (int i = 0; i < copy_count; i++) {
+            new_stack[i] = stack[i];
+        }
+
+        top = copy_count - 1;
+
+        kfree(stack);
+        stack = new_stack;
+        max_size = new_size;
+        mutex_unlock(&stack_mutex);
+
+        printk(KERN_INFO "int_stack: Resized stack to %d (copied %d elements).\n", new_size, copy_count);
+        break;
+
+    default:
+        return -EINVAL;
     }
 
     return 0;
