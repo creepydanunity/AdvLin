@@ -107,12 +107,19 @@ static long stack_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
             return -ENOMEM;
         }
 
+        int copy_count = (top + 1 < new_size) ? (top + 1) : new_size;
+        for (int i = 0; i < copy_count; i++) {
+            new_stack[i] = stack[i];
+        }
+
+        top = copy_count - 1;
+
         kfree(stack);
         stack = new_stack;
         max_size = new_size;
-        top = -1;
         mutex_unlock(&stack_mutex);
-        printk(KERN_INFO "int_stack: Resized stack to %d.\n", new_size);
+
+        printk(KERN_INFO "int_stack: Resized stack to %d (copied %d elements).\n", new_size, copy_count);
         break;
 
     default:
